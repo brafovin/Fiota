@@ -62,6 +62,7 @@ und „weltweit per Code" wird er **nicht** benutzt – dort übernimmt PeerJS.
 | `Q` / `E`        | Blinker links/rechts  |
 | `V`              | Ansicht wechseln (Top-Down / Ego) |
 | `P` / `Esc`      | Pause-Menü            |
+| `T`              | Abschleppen lassen (zur nächsten Tankstelle) |
 
 Auf Smartphone/Tablet erscheinen Touch-Buttons.
 
@@ -74,6 +75,9 @@ Auf Smartphone/Tablet erscheinen Touch-Buttons.
 - **Tank & Tankstellen:** Fahren verbraucht Sprit. Bei leerem Tank geht der
   Motor aus – halte an einer **⛽ Tankstelle** (blaue Dörfer) langsam an, um
   automatisch nachzutanken.
+- **Abschleppen:** Bleibst du liegen (z. B. leerer Tank), drücke `T` oder nutze
+  den Button im Pause-Menü – ein 🪝 Abschleppwagen zieht dich zur nächsten
+  Tankstelle und tankt voll.
 - **Verkehr:** NPC-Autos fahren auf den Straßen und halten an roten Ampeln.
 - **Ampeln:** An großen Kreuzungen stehen Ampeln. Bei Rot durchrauschen kostet
   **10 €**.

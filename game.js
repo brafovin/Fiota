@@ -152,6 +152,8 @@ let money = 0;
 // Spielzustand & Ansicht
 let paused = false;
 let view = "top";          // "top" = Vogelperspektive, "fp" = Ego-Perspektive
+let towing = false;        // wird gerade abgeschleppt?
+let towTarget = null;      // Ziel-Tankstelle beim Abschleppen
 
 // Tag/Nacht, Wetter, Bedienung, Rekorde
 let worldTime = 8 * 60;    // Spielzeit in Minuten (Start 08:00)
@@ -224,15 +226,22 @@ const KEYMAP = {
   ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down",
   ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right",
 };
+function typingInField(e) {
+  const t = e.target;
+  return t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+}
 window.addEventListener("keydown", (e) => {
+  if (typingInField(e)) return; // im Lobby-Menü normal tippen können (z. B. WASD im Namen)
   if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); }
   if (e.code === "KeyH" || e.code === "Space") { if (!hornDown) { hornDown = true; honk(); } e.preventDefault(); }
   if (e.code === "KeyQ") { blinkL = !blinkL; blinkR = false; }
   if (e.code === "KeyE") { blinkR = !blinkR; blinkL = false; }
   if (e.code === "KeyV") toggleView();
+  if (e.code === "KeyT") startTow();
   if (e.code === "KeyP" || e.code === "Escape") { if (running) togglePause(); }
 });
 window.addEventListener("keyup", (e) => {
+  if (typingInField(e)) return;
   if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = false; e.preventDefault(); }
   if (e.code === "KeyH" || e.code === "Space") hornDown = false;
 });
@@ -330,6 +339,26 @@ function update(dt) {
   updateLights(dt);
   updateCars(dt);
   if (redCooldown > 0) redCooldown -= dt;
+
+  // Abschleppen: Simson wird zur nächsten Tankstelle gezogen und vollgetankt
+  if (towing) {
+    const v = towTarget;
+    const dx = v.x - bike.x, dy = v.y - bike.y;
+    const dist = Math.hypot(dx, dy);
+    bike.angle = Math.atan2(dy, dx);
+    bike.speed = 0;
+    if (dist < 40) {
+      towing = false; towTarget = null; fuel = 100;
+      toast("⛽ Abgeschleppt & vollgetankt!");
+    } else {
+      const step = 175 * dt;
+      bike.x += Math.cos(bike.angle) * step;
+      bike.y += Math.sin(bike.angle) * step;
+    }
+    updateHUD(distToNearestRoad(bike.x, bike.y) <= ROAD_W, fuel > 0);
+    updateEngineSound();
+    return;
+  }
 
   const rain = weather === "rain";
 
@@ -473,8 +502,10 @@ function updateHUD(onRoad, hasFuel) {
   const v = villages[idx];
   const nd = Math.hypot(bike.x - v.x, bike.y - v.y);
   const vEl = document.getElementById("village");
-  if (nd < 320) vEl.textContent = (v.gas ? "⛽ " : "📍 ") + v.name + (!hasFuel ? " · Tank leer!" : "");
-  else vEl.textContent = !hasFuel ? "🚧 Tank leer!" : onRoad ? "🛣️ Landstraße" : "🌿 Feldweg";
+  if (towing) vEl.textContent = "🪝 Wird abgeschleppt nach " + (towTarget ? towTarget.name : "…");
+  else if (nd < 320) vEl.textContent = (v.gas ? "⛽ " : "📍 ") + v.name + (!hasFuel ? " · Tank leer! (T)" : "");
+  else if (!hasFuel) vEl.textContent = "🚧 Tank leer! Taste T = abschleppen";
+  else vEl.textContent = onRoad ? "🛣️ Landstraße" : "🌿 Feldweg";
 
   document.getElementById("distance").textContent = (distanceTravelled / 1000).toFixed(2) + " km";
 
@@ -520,10 +551,32 @@ function drawTopDown() {
   drawVillageSigns();
   drawRemotePlayers();
   drawBike();
+  if (towing) drawTowTruck();
 
   ctx.restore();
 
   drawNight(camX, camY);
+}
+
+function drawTowTruck() {
+  const ahead = 40;
+  const tx = bike.x + Math.cos(bike.angle) * ahead;
+  const ty = bike.y + Math.sin(bike.angle) * ahead;
+  // Abschleppseil
+  ctx.strokeStyle = "#caa"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(bike.x, bike.y); ctx.lineTo(tx, ty); ctx.stroke();
+  // Wagen
+  ctx.save();
+  ctx.translate(tx, ty); ctx.rotate(bike.angle + Math.PI / 2);
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.fillRect(-11, -17, 22, 34);
+  ctx.fillStyle = "#f1c40f";
+  roundRect(-11, -18, 22, 34, 4); ctx.fill();
+  ctx.fillStyle = "#2c3e50";
+  ctx.fillRect(-9, -10, 18, 8);   // Scheibe
+  ctx.fillStyle = "#e67e22";
+  ctx.fillRect(-9, 4, 18, 4);     // Warnstreifen
+  ctx.restore();
 }
 
 /* ---------------------------------------------------------
@@ -1235,6 +1288,21 @@ function startGame() {
   if (audio && audio.state === "suspended") audio.resume();
 }
 
+function startTow() {
+  if (towing || !running) return;
+  let best = null, bd = Infinity;
+  for (const v of villages) {
+    if (!v.gas) continue;
+    const d = Math.hypot(bike.x - v.x, bike.y - v.y);
+    if (d < bd) { bd = d; best = v; }
+  }
+  if (!best) return;
+  towTarget = best; towing = true;
+  blinkL = blinkR = false;
+  togglePause(false);
+  toast("🪝 Abschleppwagen kommt – Ziel: " + best.name);
+}
+
 function togglePause(force) {
   paused = force != null ? force : !paused;
   document.getElementById("pause").classList.toggle("hidden", !paused);
@@ -1266,6 +1334,7 @@ document.getElementById("pauseBtn").addEventListener("click", () => { if (runnin
 document.getElementById("viewBtn").addEventListener("click", toggleView);
 document.getElementById("resumeBtn").addEventListener("click", () => togglePause(false));
 document.getElementById("viewBtn2").addEventListener("click", toggleView);
+document.getElementById("towBtn").addEventListener("click", startTow);
 document.getElementById("menuBtn").addEventListener("click", goToMenu);
 
 requestAnimationFrame(loop);
