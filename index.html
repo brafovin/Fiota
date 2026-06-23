@@ -12,15 +12,27 @@
 
     <!-- HUD -->
     <div id="hud">
-      <div class="gauge">
-        <div class="speed"><span id="speed">0</span><small>km/h</small></div>
-        <div class="gear">Gang <span id="gear">N</span></div>
+      <div class="left">
+        <div class="gauge">
+          <div class="speed"><span id="speed">0</span><small>km/h</small></div>
+          <div class="gear">Gang <span id="gear">N</span></div>
+        </div>
+        <div class="fuelbox">
+          <div class="fuel-label">⛽ Tank</div>
+          <div class="fuel-bar"><div id="fuelFill"></div></div>
+        </div>
       </div>
+
       <div class="info">
+        <div id="money">0 €</div>
+        <div id="job" class="job">Auftrag wird geladen…</div>
         <div id="village">Unterwegs…</div>
         <div id="distance">0.0 km</div>
       </div>
     </div>
+
+    <!-- Toast-Meldungen -->
+    <div id="toast"></div>
 
     <!-- Touch-Steuerung (mobil) -->
     <div id="touch">
@@ -38,13 +50,20 @@
     <div id="start">
       <div class="card">
         <h1>🛵 Simson Tour</h1>
-        <p>Fahr mit deiner Simson <b>S51</b> über Landstraßen von Dorf zu Dorf.</p>
+        <p>Fahr mit deiner Simson <b>S51</b> über Landstraßen, liefere Pakete
+           von Dorf zu Dorf, tanke nach und beachte die Ampeln.</p>
+
+        <div class="outfits">
+          <div class="outfit-title">Wähle dein Outfit</div>
+          <div id="outfitList"></div>
+        </div>
+
         <ul>
           <li><b>↑ / W</b> – Gas geben</li>
           <li><b>↓ / S</b> – Bremsen &amp; rückwärts</li>
           <li><b>← → / A D</b> – Lenken</li>
         </ul>
-        <p class="hint">Auf dem Asphalt bist du am schnellsten – im Gras wird's zäh.</p>
+        <p class="hint">Asphalt = schnell, Gras = zäh. Bei leerem Tank zur ⛽ Tankstelle!</p>
         <button id="startBtn">Losfahren</button>
       </div>
     </div>

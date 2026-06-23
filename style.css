@@ -36,6 +36,7 @@ canvas#game {
   pointer-events: none;
   text-shadow: 0 2px 4px rgba(0,0,0,.6);
 }
+.left { display: flex; flex-direction: column; gap: 10px; }
 
 .gauge {
   background: rgba(0,0,0,.45);
@@ -49,16 +50,80 @@ canvas#game {
 .speed small { font-size: 14px; opacity: .8; }
 .gear { font-size: 13px; opacity: .85; margin-top: 2px; }
 
-.info { text-align: right; }
+.fuelbox {
+  background: rgba(0,0,0,.45);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 12px;
+  padding: 8px 14px;
+  width: 170px;
+}
+.fuel-label { font-size: 12px; opacity: .85; margin-bottom: 5px; }
+.fuel-bar {
+  height: 12px;
+  background: rgba(255,255,255,.15);
+  border-radius: 6px;
+  overflow: hidden;
+}
+#fuelFill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #e74c3c, #f1c40f, #2ecc71);
+  transition: width .2s linear;
+}
+
+.info { text-align: right; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+#money {
+  background: rgba(0,0,0,.45);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 10px;
+  padding: 6px 14px;
+  font-size: 20px;
+  font-weight: 700;
+  color: #ffe06a;
+}
+.job {
+  background: rgba(40,90,160,.6);
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 10px;
+  padding: 7px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  max-width: 230px;
+}
 #village {
   background: rgba(0,0,0,.45);
   border: 1px solid rgba(255,255,255,.12);
   border-radius: 10px;
-  padding: 8px 14px;
-  font-size: 16px;
+  padding: 6px 14px;
+  font-size: 15px;
   font-weight: 600;
 }
-#distance { margin-top: 6px; font-size: 13px; opacity: .8; }
+#distance { font-size: 13px; opacity: .8; }
+
+/* ---------- Toast ---------- */
+#toast {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  pointer-events: none;
+  z-index: 15;
+}
+.toast-msg {
+  background: rgba(0,0,0,.78);
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 12px;
+  padding: 12px 22px;
+  font-size: 18px;
+  font-weight: 700;
+  text-shadow: 0 2px 4px rgba(0,0,0,.6);
+  animation: pop .3s ease, fade .4s ease 1.1s forwards;
+}
+@keyframes pop { from { transform: scale(.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes fade { to { opacity: 0; transform: translateY(-14px); } }
 
 /* ---------- Touch ---------- */
 #touch {
@@ -97,22 +162,40 @@ canvas#game {
   justify-content: center;
   background: radial-gradient(circle at 50% 30%, #2e4a2e, #16221a);
   z-index: 20;
+  overflow: auto;
 }
 #start.hidden { display: none; }
 .card {
   background: rgba(0,0,0,.55);
   border: 1px solid rgba(255,255,255,.15);
   border-radius: 18px;
-  padding: 30px 34px;
-  max-width: 380px;
+  padding: 28px 32px;
+  max-width: 400px;
   text-align: center;
+  margin: auto;
 }
 .card h1 { font-size: 34px; margin-bottom: 12px; }
 .card p { opacity: .9; margin-bottom: 14px; line-height: 1.4; }
-.card ul { text-align: left; display: inline-block; margin: 4px auto 16px; line-height: 1.9; }
+.card ul { text-align: left; display: inline-block; margin: 4px auto 14px; line-height: 1.9; }
 .card .hint { font-size: 13px; opacity: .7; }
+
+.outfits { margin: 4px 0 16px; }
+.outfit-title { font-size: 13px; opacity: .8; margin-bottom: 8px; }
+#outfitList { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.outfit {
+  width: 60px;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  padding: 6px 4px;
+  background: rgba(255,255,255,.06);
+  cursor: pointer;
+  font-size: 11px;
+}
+.outfit canvas { display: block; margin: 0 auto 3px; }
+.outfit.sel { border-color: #ffd23f; background: rgba(255,210,63,.15); }
+
 #startBtn {
-  margin-top: 10px;
+  margin-top: 6px;
   padding: 14px 40px;
   font-size: 18px;
   font-weight: 700;
