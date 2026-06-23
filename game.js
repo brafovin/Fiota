@@ -9,6 +9,10 @@
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
+// Offscreen-Layer für das Nacht-Overlay (Dunkelheit mit Lichtkegeln)
+const nightCv = document.createElement("canvas");
+const nctx = nightCv.getContext("2d");
+
 let W = 0, H = 0, DPR = 1;
 function resize() {
   DPR = Math.min(window.devicePixelRatio || 1, 2);
@@ -17,6 +21,8 @@ function resize() {
   canvas.width = Math.floor(W * DPR);
   canvas.height = Math.floor(H * DPR);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  nightCv.width = W;
+  nightCv.height = H;
 }
 window.addEventListener("resize", resize);
 resize();
@@ -123,14 +129,32 @@ const bike = {
   angle: -Math.PI / 2, speed: 0,
 };
 
-const MAX_SPEED = 320, REVERSE_SPEED = -90;
-const ACCEL = 220, BRAKE = 380;
+const KMH = 60 / 320;        // px/s -> km/h für die Anzeige
+const REVERSE_SPEED = -90, BRAKE = 380;
 const DRAG_ROAD = 0.7, DRAG_GRASS = 2.4;
 const GRASS_MAX = 130, TURN_RATE = 2.6;
+
+// Auswählbare Simson-Modelle (Tempo & Beschleunigung)
+const MODELS = [
+  { name: "S51",      maxSpeed: 320, accel: 220, desc: "Allrounder" },
+  { name: "Schwalbe", maxSpeed: 300, accel: 170, desc: "gemütlich" },
+  { name: "S70",      maxSpeed: 400, accel: 250, desc: "schnell" },
+  { name: "SR50",     maxSpeed: 360, accel: 300, desc: "spritzig" },
+];
+let model = 0;
+let maxSpeed = MODELS[0].maxSpeed;
+let accel = MODELS[0].accel;
 
 let distanceTravelled = 0;
 let fuel = 100;            // 0..100
 let money = 0;
+
+// Tag/Nacht, Wetter, Bedienung, Rekorde
+let worldTime = 8 * 60;    // Spielzeit in Minuten (Start 08:00)
+let weather = "clear", weatherTimer = 30;
+let blinkL = false, blinkR = false, hornDown = false;
+let bestMoney = +(localStorage.getItem("simson_best_money") || 0);
+let bestDist = +(localStorage.getItem("simson_best_dist") || 0);
 
 /* ---------------------------------------------------------
    Lieferaufträge
@@ -196,8 +220,16 @@ const KEYMAP = {
   ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down",
   ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right",
 };
-window.addEventListener("keydown", (e) => { if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); } });
-window.addEventListener("keyup", (e) => { if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = false; e.preventDefault(); } });
+window.addEventListener("keydown", (e) => {
+  if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = true; e.preventDefault(); }
+  if (e.code === "KeyH" || e.code === "Space") { if (!hornDown) { hornDown = true; honk(); } e.preventDefault(); }
+  if (e.code === "KeyQ") { blinkL = !blinkL; blinkR = false; }
+  if (e.code === "KeyE") { blinkR = !blinkR; blinkL = false; }
+});
+window.addEventListener("keyup", (e) => {
+  if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = false; e.preventDefault(); }
+  if (e.code === "KeyH" || e.code === "Space") hornDown = false;
+});
 
 document.querySelectorAll("#touch .btn").forEach((b) => {
   const dir = KEYMAP[b.dataset.key];
@@ -228,12 +260,22 @@ function initAudio() {
 }
 function updateEngineSound() {
   if (!audio) return;
-  const sp = Math.abs(bike.speed) / MAX_SPEED;
+  const sp = Math.abs(bike.speed) / maxSpeed;
   const on = running && fuel > 0;
   osc.frequency.setTargetAtTime(60 + sp * 150, audio.currentTime, 0.05);
   lp.frequency.setTargetAtTime(500 + sp * 1800, audio.currentTime, 0.05);
   const target = 0.04 + sp * 0.10 + (keys.up ? 0.04 : 0);
   gain.gain.setTargetAtTime(on ? target : 0, audio.currentTime, 0.08);
+}
+function honk() {
+  if (!audio) return;
+  const t = audio.currentTime;
+  const o = audio.createOscillator(); o.type = "square"; o.frequency.value = 392;
+  const g = audio.createGain(); g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.13, t + 0.02);
+  g.gain.setTargetAtTime(0, t + 0.22, 0.05);
+  o.connect(g).connect(audio.destination);
+  o.start(t); o.stop(t + 0.5);
 }
 
 /* ---------------------------------------------------------
@@ -249,33 +291,59 @@ function toast(text) {
 }
 
 /* ---------------------------------------------------------
+   Tag/Nacht & Wetter
+   --------------------------------------------------------- */
+function nightAlpha() {
+  const h = (worldTime / 60) % 24;
+  let dark;
+  if (h >= 7 && h <= 19) dark = 0;
+  else if (h > 19 && h < 21) dark = (h - 19) / 2;   // Abenddämmerung
+  else if (h > 5 && h < 7) dark = (7 - h) / 2;       // Morgendämmerung
+  else dark = 1;                                     // Nacht
+  return dark * 0.8;
+}
+function updateWeather(dt) {
+  weatherTimer -= dt;
+  if (weatherTimer <= 0) {
+    const wasRain = weather === "rain";
+    weather = rnd() < 0.35 ? "rain" : "clear";
+    weatherTimer = 25 + rnd() * 35;
+    if (weather === "rain" && !wasRain) toast("🌧️ Es fängt an zu regnen");
+  }
+}
+
+/* ---------------------------------------------------------
    Update
    --------------------------------------------------------- */
 let running = false, last = 0;
 let redCooldown = 0;
 
 function update(dt) {
+  worldTime = (worldTime + dt * 6) % 1440; // ~4 Min. realer Zeit = 1 Tag
+  updateWeather(dt);
   updateLights(dt);
   updateCars(dt);
   if (redCooldown > 0) redCooldown -= dt;
 
+  const rain = weather === "rain";
+
   // Lenken
   const steer = (keys.left ? -1 : 0) + (keys.right ? 1 : 0);
   const speedFactor = Math.min(1, Math.abs(bike.speed) / 60);
-  bike.angle += steer * TURN_RATE * speedFactor * Math.sign(bike.speed || 1) * dt;
+  bike.angle += steer * TURN_RATE * (rain ? 0.82 : 1) * speedFactor * Math.sign(bike.speed || 1) * dt;
 
-  // Untergrund
+  // Untergrund (Regen mindert Grip & Tempo)
   const onRoad = distToNearestRoad(bike.x, bike.y) <= ROAD_W;
-  const maxFwd = onRoad ? MAX_SPEED : GRASS_MAX;
-  const drag = onRoad ? DRAG_ROAD : DRAG_GRASS;
+  const maxFwd = (onRoad ? maxSpeed : GRASS_MAX) * (rain ? 0.9 : 1);
+  const drag = (onRoad ? DRAG_ROAD : DRAG_GRASS) * (rain ? 1.5 : 1);
   const hasFuel = fuel > 0;
 
   // Beschleunigen / Bremsen
   if (keys.up && hasFuel) {
-    bike.speed += ACCEL * dt;
+    bike.speed += accel * dt;
   } else if (keys.down) {
     if (bike.speed > 0) bike.speed -= BRAKE * dt;
-    else if (hasFuel) bike.speed -= ACCEL * 0.6 * dt;
+    else if (hasFuel) bike.speed -= accel * 0.6 * dt;
   } else {
     bike.speed -= bike.speed * drag * dt;
     if (Math.abs(bike.speed) < 2) bike.speed = 0;
@@ -283,7 +351,7 @@ function update(dt) {
   bike.speed = Math.max(REVERSE_SPEED, Math.min(maxFwd, bike.speed));
 
   // Sprit verbrauchen
-  const consume = (Math.abs(bike.speed) / MAX_SPEED) * 2.4 + (keys.up ? 0.8 : 0);
+  const consume = (Math.abs(bike.speed) / maxSpeed) * 2.4 + (keys.up ? 0.8 : 0);
   fuel = Math.max(0, fuel - consume * dt);
 
   // Bewegung
@@ -380,7 +448,7 @@ function handleTrafficLights() {
 }
 
 function updateHUD(onRoad, hasFuel) {
-  const kmh = Math.round(Math.abs(bike.speed) / MAX_SPEED * 60);
+  const kmh = Math.round(Math.abs(bike.speed) * KMH);
   document.getElementById("speed").textContent = kmh;
   document.getElementById("gear").textContent =
     bike.speed < -5 ? "R" : kmh === 0 ? "N" : kmh < 15 ? "1" : kmh < 30 ? "2" : kmh < 45 ? "3" : "4";
@@ -403,6 +471,17 @@ function updateHUD(onRoad, hasFuel) {
   else vEl.textContent = !hasFuel ? "🚧 Tank leer!" : onRoad ? "🛣️ Landstraße" : "🌿 Feldweg";
 
   document.getElementById("distance").textContent = (distanceTravelled / 1000).toFixed(2) + " km";
+
+  // Uhr & Wetter
+  const hh = Math.floor((worldTime / 60) % 24), mm = Math.floor(worldTime % 60);
+  const pad = (n) => (n < 10 ? "0" + n : "" + n);
+  const sky = nightAlpha() > 0.4 ? "🌙" : "☀️";
+  document.getElementById("env").textContent =
+    pad(hh) + ":" + pad(mm) + " " + sky + (weather === "rain" ? " 🌧️" : "");
+
+  // Rekorde sichern
+  if (money > bestMoney) { bestMoney = money; localStorage.setItem("simson_best_money", bestMoney); }
+  if (distanceTravelled > bestDist) { bestDist = distanceTravelled; localStorage.setItem("simson_best_dist", Math.round(bestDist)); }
 }
 
 /* ---------------------------------------------------------
@@ -429,8 +508,59 @@ function draw() {
 
   ctx.restore();
 
+  drawNight(camX, camY);
+  drawRain();
   drawObjectiveArrow();
   drawMinimap();
+}
+
+function drawNight(camX, camY) {
+  const a = nightAlpha();
+  if (a <= 0.01) return;
+  // Dunkelheit auf Offscreen-Layer, Lichter „ausstanzen"
+  nightCv.width = W; nightCv.height = H;
+  nctx.fillStyle = "rgba(6,10,30," + a + ")";
+  nctx.fillRect(0, 0, W, H);
+  nctx.globalCompositeOperation = "destination-out";
+
+  const punch = (sx, sy, r, strength) => {
+    const g = nctx.createRadialGradient(sx, sy, r * 0.1, sx, sy, r);
+    g.addColorStop(0, "rgba(0,0,0," + strength + ")");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    nctx.fillStyle = g;
+    nctx.beginPath(); nctx.arc(sx, sy, r, 0, Math.PI * 2); nctx.fill();
+  };
+
+  // Straßenlaternen der Dörfer
+  for (const v of villages) {
+    const sx = v.x - camX, sy = v.y - camY;
+    if (sx < -260 || sx > W + 260 || sy < -260 || sy > H + 260) continue;
+    punch(sx, sy, 260, 0.9);
+  }
+  // Scheinwerfer der Simson (nach vorn gerichtet)
+  const hx = W / 2 + Math.cos(bike.angle) * 150;
+  const hy = H / 2 + Math.sin(bike.angle) * 150;
+  punch(hx, hy, 260, 0.95);
+  punch(W / 2, H / 2, 70, 0.6);
+
+  nctx.globalCompositeOperation = "source-over";
+  ctx.drawImage(nightCv, 0, 0);
+}
+
+function drawRain() {
+  if (weather !== "rain") return;
+  ctx.fillStyle = "rgba(120,140,180,0.12)";
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = "rgba(190,205,235,0.35)";
+  ctx.lineWidth = 2;
+  const t = performance.now() / 1000;
+  ctx.beginPath();
+  for (let i = 0; i < 160; i++) {
+    const x = ((i * 97 + t * 650) % (W + 40)) - 20;
+    const y = ((i * 53 + t * 950) % (H + 40)) - 20;
+    ctx.moveTo(x, y); ctx.lineTo(x - 6, y + 15);
+  }
+  ctx.stroke();
 }
 
 function drawGrassTexture(camX, camY) {
@@ -580,6 +710,20 @@ function drawBike() {
   ctx.fillStyle = "rgba(0,0,0,0.4)";
   ctx.beginPath(); ctx.arc(0, -7, 6, Math.PI * 0.1, Math.PI * 0.9); ctx.fill();
 
+  // Blinker (amber, blinkend)
+  const blinkOn = Math.floor(performance.now() / 250) % 2 === 0;
+  if (blinkOn) {
+    ctx.fillStyle = "#ffae00";
+    if (blinkL) {
+      ctx.beginPath(); ctx.arc(-9, -17, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(-9, 17, 3, 0, Math.PI * 2); ctx.fill();
+    }
+    if (blinkR) {
+      ctx.beginPath(); ctx.arc(9, -17, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(9, 17, 3, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
   ctx.restore();
 }
 
@@ -691,8 +835,35 @@ function buildOutfitPicker() {
 }
 buildOutfitPicker();
 
+function buildModelPicker() {
+  const list = document.getElementById("modelList");
+  MODELS.forEach((m, i) => {
+    const el = document.createElement("div");
+    el.className = "model" + (i === model ? " sel" : "");
+    el.innerHTML = "<b>" + m.name + "</b><small>" +
+      Math.round(m.maxSpeed * KMH) + " km/h · " + m.desc + "</small>";
+    el.addEventListener("click", () => {
+      model = i;
+      document.querySelectorAll(".model").forEach((e) => e.classList.remove("sel"));
+      el.classList.add("sel");
+    });
+    list.appendChild(el);
+  });
+}
+buildModelPicker();
+
+function showHighscore() {
+  const el = document.getElementById("highscore");
+  if (bestMoney > 0 || bestDist > 0) {
+    el.textContent = "🏆 Rekord: " + bestMoney + " € · " + (bestDist / 1000).toFixed(1) + " km";
+  }
+}
+showHighscore();
+
 document.getElementById("startBtn").addEventListener("click", () => {
   document.getElementById("start").classList.add("hidden");
+  maxSpeed = MODELS[model].maxSpeed;
+  accel = MODELS[model].accel;
   running = true;
   newJob();
   initAudio();
