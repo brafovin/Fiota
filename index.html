@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Simson Tour – Fahr durch die Dörfer</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="game-wrap">
+    <canvas id="game"></canvas>
+
+    <!-- HUD -->
+    <div id="hud">
+      <div class="gauge">
+        <div class="speed"><span id="speed">0</span><small>km/h</small></div>
+        <div class="gear">Gang <span id="gear">N</span></div>
+      </div>
+      <div class="info">
+        <div id="village">Unterwegs…</div>
+        <div id="distance">0.0 km</div>
+      </div>
+    </div>
+
+    <!-- Touch-Steuerung (mobil) -->
+    <div id="touch">
+      <div class="pad">
+        <button class="btn" data-key="ArrowLeft">◀</button>
+        <button class="btn" data-key="ArrowRight">▶</button>
+      </div>
+      <div class="pad">
+        <button class="btn gas" data-key="ArrowUp">GAS</button>
+        <button class="btn brake" data-key="ArrowDown">BREMSE</button>
+      </div>
+    </div>
+
+    <!-- Startbildschirm -->
+    <div id="start">
+      <div class="card">
+        <h1>🛵 Simson Tour</h1>
+        <p>Fahr mit deiner Simson <b>S51</b> über Landstraßen von Dorf zu Dorf.</p>
+        <ul>
+          <li><b>↑ / W</b> – Gas geben</li>
+          <li><b>↓ / S</b> – Bremsen &amp; rückwärts</li>
+          <li><b>← → / A D</b> – Lenken</li>
+        </ul>
+        <p class="hint">Auf dem Asphalt bist du am schnellsten – im Gras wird's zäh.</p>
+        <button id="startBtn">Losfahren</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
