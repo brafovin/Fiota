@@ -10,27 +10,46 @@ Zweitakt-Motorsound aus dem Browser.
 Keine Installation, kein Build nötig – einfach `index.html` im Browser öffnen
 und auf **„Allein losfahren"** klicken.
 
-## Mehrspielermodus
+## Ansicht & Pause-Menü
 
-Für gemeinsames Spielen läuft ein kleiner WebSocket-Server, der zugleich das
-Spiel ausliefert und Räume per **Zugangscode** verwaltet.
+- **Ansicht wechseln:** Taste `V` oder der 👁️-Button – zwischen
+  **Vogelperspektive** (Top-Down) und **Ego-Perspektive** (First Person).
+- **Pause:** Taste `P` / `Esc` oder der ⏸️-Button öffnet das Menü
+  (Weiter, Ansicht wechseln, zurück zum Hauptmenü).
 
-```bash
-npm install      # einmalig: Abhängigkeit (ws) installieren
-npm start        # Server starten -> http://localhost:8080
-```
+## Mehrspielermodus (weltweit, nur per Code)
 
-1. Alle öffnen `http://localhost:8080` (im selben Netzwerk:
-   `http://<IP-des-Hosts>:8080`).
-2. Ein Spieler trägt seinen Namen ein und klickt **„Raum erstellen"** –
+Der Mehrspielermodus läuft **serverlos über PeerJS** (Browser-zu-Browser via
+den kostenlosen PeerJS-Broker). Es ist **kein eigener Server nötig** und kein
+gemeinsames Netzwerk – ein Zugangscode genügt. Das passt zu statischem Hosting
+wie **Vercel**, das keine dauerhaften WebSocket-Verbindungen ausführen kann.
+
+1. Spiel öffnen (lokal `index.html` oder die deployte URL).
+2. Ein Spieler gibt seinen Namen ein und klickt **„Raum erstellen"** –
    er bekommt einen 4-stelligen Code (z. B. `CQGS`).
-3. Die anderen tragen Namen + Code ein und klicken **„Beitreten"**.
+3. Die anderen tragen Namen + Code ein und klicken **„Beitreten"** –
+   von überall auf der Welt.
 4. Alle fahren in derselben Welt; Mitspieler erscheinen mit Namensschild,
-   oben links steht der Raumcode und die Anzahl der Fahrer.
+   oben links stehen Raumcode und Fahrerzahl.
 
-Der Port lässt sich über `PORT=3000 npm start` ändern. Für Spiel über das
-Internet muss der Server erreichbar sein (z. B. auf einem kleinen Hoster
-deployen oder einen Tunnel wie `ngrok` nutzen).
+Der **Host** ist die Drehscheibe (Sterntopologie) und leitet die Positionen an
+alle weiter – er sollte währenddessen online bleiben.
+
+### Auf Vercel deployen
+
+Das Repo ist als **statische Seite** konfiguriert (`vercel.json`). Einfach das
+Repository mit Vercel verbinden – es werden `index.html`, `style.css` und
+`game.js` ausgeliefert, PeerJS kommt per CDN dazu. Es ist **kein** Build und
+**kein** Server-Prozess nötig.
+
+> Hinweis: Wird per **Code** verbunden, nicht über das Netzwerk – funktioniert
+> also auch außerhalb des eigenen WLANs.
+
+### Optional: eigener Server (Selbst-Hosting)
+
+`server.js` enthält weiterhin einen kleinen WebSocket-Server für reines
+Selbst-Hosting im eigenen Netzwerk (`npm install && npm start`). Für Vercel
+und „weltweit per Code" wird er **nicht** benutzt – dort übernimmt PeerJS.
 
 ## Steuerung
 
@@ -41,6 +60,8 @@ deployen oder einen Tunnel wie `ngrok` nutzen).
 | `←` `→` / `A` `D`| Lenken                |
 | `H` / `Leertaste`| Hupe                  |
 | `Q` / `E`        | Blinker links/rechts  |
+| `V`              | Ansicht wechseln (Top-Down / Ego) |
+| `P` / `Esc`      | Pause-Menü            |
 
 Auf Smartphone/Tablet erscheinen Touch-Buttons.
 
@@ -72,11 +93,12 @@ Auf Smartphone/Tablet erscheinen Touch-Buttons.
 
 ## Aufbau
 
-- `index.html` – Grundgerüst, HUD, Startbildschirm
+- `index.html` – Grundgerüst, HUD, Start- und Pause-Menü
 - `style.css`  – Layout & HUD-Design
-- `game.js`    – Welt, Fahrphysik, Rendering, Sound, Mehrspieler-Client (Vanilla JS, Canvas 2D)
-- `server.js`  – WebSocket-Server: liefert die Dateien aus und verwaltet Räume
-- `package.json` – Start-Skript und die einzige Abhängigkeit (`ws`)
+- `game.js`    – Welt, Fahrphysik, Top-Down- & Ego-Rendering, Sound,
+  PeerJS-Mehrspieler (Vanilla JS, Canvas 2D)
+- `vercel.json` – statisches Hosting auf Vercel
+- `server.js` / `package.json` – optionaler WebSocket-Server fürs Selbst-Hosting
 
-Der Client (HTML/CSS/JS) hat keine externen Abhängigkeiten; nur der optionale
-Mehrspieler-Server nutzt das `ws`-Paket.
+Der Client nutzt nur **PeerJS** (per CDN) für den Mehrspielermodus; sonst keine
+externen Abhängigkeiten.

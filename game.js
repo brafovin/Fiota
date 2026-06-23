@@ -149,6 +149,10 @@ let distanceTravelled = 0;
 let fuel = 100;            // 0..100
 let money = 0;
 
+// Spielzustand & Ansicht
+let paused = false;
+let view = "top";          // "top" = Vogelperspektive, "fp" = Ego-Perspektive
+
 // Tag/Nacht, Wetter, Bedienung, Rekorde
 let worldTime = 8 * 60;    // Spielzeit in Minuten (Start 08:00)
 let weather = "clear", weatherTimer = 30;
@@ -225,6 +229,8 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyH" || e.code === "Space") { if (!hornDown) { hornDown = true; honk(); } e.preventDefault(); }
   if (e.code === "KeyQ") { blinkL = !blinkL; blinkR = false; }
   if (e.code === "KeyE") { blinkR = !blinkR; blinkL = false; }
+  if (e.code === "KeyV") toggleView();
+  if (e.code === "KeyP" || e.code === "Escape") { if (running) togglePause(); }
 });
 window.addEventListener("keyup", (e) => {
   if (KEYMAP[e.code]) { keys[KEYMAP[e.code]] = false; e.preventDefault(); }
@@ -488,6 +494,14 @@ function updateHUD(onRoad, hasFuel) {
    Rendering
    --------------------------------------------------------- */
 function draw() {
+  if (view === "fp") drawFirstPerson();
+  else drawTopDown();
+  drawRain();
+  if (view === "top") drawObjectiveArrow();
+  drawMinimap();
+}
+
+function drawTopDown() {
   const camX = bike.x - W / 2, camY = bike.y - H / 2;
 
   ctx.fillStyle = "#5a8c45";
@@ -510,9 +524,155 @@ function draw() {
   ctx.restore();
 
   drawNight(camX, camY);
-  drawRain();
-  drawObjectiveArrow();
-  drawMinimap();
+}
+
+/* ---------------------------------------------------------
+   First-Person-Ansicht (Pseudo-3D)
+   --------------------------------------------------------- */
+function drawFirstPerson() {
+  const focal = W * 0.85, camH = 42, hor = H * 0.42, near = 24, RD = 2600;
+
+  // Himmel (nachts dunkler) + Boden
+  const dn = nightAlpha();
+  const sky = ctx.createLinearGradient(0, 0, 0, hor);
+  sky.addColorStop(0, dn > 0.4 ? "#10204a" : "#6fa8dc");
+  sky.addColorStop(1, dn > 0.4 ? "#26406e" : "#cfe4f2");
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, hor);
+  ctx.fillStyle = "#5a8c45"; ctx.fillRect(0, hor, W, H - hor);
+
+  const a = bike.angle, ca = Math.cos(a), sa = Math.sin(a);
+  const projG = (px, py) => {
+    const dx = px - bike.x, dy = py - bike.y;
+    return { ry: dx * ca + dy * sa, rx: dx * -sa + dy * ca };
+  };
+  const screenG = (rx, ry) => {
+    const s = focal / ry;
+    return { x: W / 2 + rx * s, y: hor + camH * s, s };
+  };
+  const fillQuad = (pts, color) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    pts.forEach((p, i) => { const sc = screenG(p.rx, p.ry); i ? ctx.lineTo(sc.x, sc.y) : ctx.moveTo(sc.x, sc.y); });
+    ctx.closePath(); ctx.fill();
+  };
+
+  // --- Straße ---
+  for (const [ia, ib] of roads) {
+    const A = villages[ia], B = villages[ib];
+    if (distToSegment(bike.x, bike.y, A.x, A.y, B.x, B.y) > RD) continue;
+    const dxs = B.x - A.x, dys = B.y - A.y, len = Math.hypot(dxs, dys) || 1;
+    const px = -dys / len * ROAD_W, py = dxs / len * ROAD_W;
+    const steps = Math.max(2, Math.min(140, Math.floor(len / 45)));
+    for (let i = 0; i < steps; i++) {
+      const t0 = i / steps, t1 = (i + 1) / steps;
+      const x0 = A.x + dxs * t0, y0 = A.y + dys * t0;
+      const x1 = A.x + dxs * t1, y1 = A.y + dys * t1;
+      const q = [projG(x0 + px, y0 + py), projG(x1 + px, y1 + py), projG(x1 - px, y1 - py), projG(x0 - px, y0 - py)];
+      if (q.some((p) => p.ry < near)) continue;
+      fillQuad(q, "#454545");
+      if (i % 2 === 0) {
+        const m = [projG(x0 + px * 0.05, y0 + py * 0.05), projG(x1 + px * 0.05, y1 + py * 0.05),
+                   projG(x1 - px * 0.05, y1 - py * 0.05), projG(x0 - px * 0.05, y0 - py * 0.05)];
+        fillQuad(m, "#e9d96b");
+      }
+    }
+  }
+
+  // --- Billboards (nach Distanz sortiert, fern -> nah) ---
+  const items = [];
+  const add = (x, y, type, data) => {
+    const p = projG(x, y);
+    if (p.ry < near || p.ry > RD) return;
+    items.push({ rx: p.rx, ry: p.ry, type, data });
+  };
+  for (const t of trees) add(t.x, t.y, "tree", t);
+  for (const h of houses) add(h.x, h.y, "house", h);
+  for (const c of cars) add(c.x, c.y, "car", c);
+  for (const v of villages) add(v.x, v.y, "sign", v);
+  for (const r of remotes.values()) add(r.x, r.y, "player", r);
+  items.sort((p, q) => q.ry - p.ry);
+
+  ctx.textAlign = "center";
+  for (const it of items) {
+    const sc = screenG(it.rx, it.ry), s = sc.s;
+    if (it.type === "tree") {
+      const tr = it.data.r;
+      ctx.fillStyle = "#6b4a2f";
+      ctx.fillRect(sc.x - tr * 0.18 * s, sc.y - tr * 1.3 * s, tr * 0.36 * s, tr * 1.3 * s);
+      ctx.fillStyle = "#2f6b2f";
+      ctx.beginPath(); ctx.arc(sc.x, sc.y - tr * 1.8 * s, tr * 1.3 * s, 0, Math.PI * 2); ctx.fill();
+    } else if (it.type === "house") {
+      const hw = it.data.w * 1.4 * s, hh = it.data.h * 1.6 * s;
+      ctx.fillStyle = it.data.color;
+      ctx.fillRect(sc.x - hw / 2, sc.y - hh, hw, hh);
+      ctx.fillStyle = "#7a4a3a";
+      ctx.beginPath();
+      ctx.moveTo(sc.x - hw / 2 - 3 * s, sc.y - hh);
+      ctx.lineTo(sc.x, sc.y - hh - hh * 0.45);
+      ctx.lineTo(sc.x + hw / 2 + 3 * s, sc.y - hh);
+      ctx.closePath(); ctx.fill();
+    } else if (it.type === "car") {
+      const w = 42 * s, h = 30 * s;
+      ctx.fillStyle = it.data.color;
+      ctx.fillRect(sc.x - w / 2, sc.y - h, w, h);
+      ctx.fillStyle = "rgba(255,255,255,.5)";
+      ctx.fillRect(sc.x - w / 2 + 2 * s, sc.y - h + 2 * s, w - 4 * s, h * 0.4);
+    } else if (it.type === "sign") {
+      const sw = 78 * s, sh = 24 * s;
+      ctx.fillStyle = "rgba(255,255,255,0.92)";
+      ctx.fillRect(sc.x - sw / 2, sc.y - 95 * s, sw, sh);
+      ctx.fillStyle = "#16221a";
+      ctx.font = "bold " + Math.max(7, 13 * s) + "px Trebuchet MS";
+      ctx.fillText(it.data.name, sc.x, sc.y - 95 * s + sh * 0.72);
+    } else if (it.type === "player") {
+      const o = OUTFITS[it.data.profile.outfit | 0] || OUTFITS[0];
+      const w = 22 * s, h = 32 * s;
+      ctx.fillStyle = "#111";
+      ctx.fillRect(sc.x - w * 0.18, sc.y - h * 0.55, w * 0.36, h * 0.55);
+      ctx.fillStyle = o.jacket;
+      ctx.fillRect(sc.x - w / 2, sc.y - h * 0.9, w, h * 0.55);
+      ctx.fillStyle = o.helmet;
+      ctx.beginPath(); ctx.arc(sc.x, sc.y - h * 0.9, w * 0.42, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.font = "bold " + Math.max(9, 13 * s) + "px Trebuchet MS";
+      ctx.fillText(it.data.profile.name || "Fahrer", sc.x, sc.y - h - 5 * s);
+    }
+  }
+
+  drawCockpit();
+
+  // Nacht-Overlay mit Frontscheinwerfer-Kegel
+  if (dn > 0.01) {
+    nightCv.width = W; nightCv.height = H;
+    nctx.fillStyle = "rgba(6,10,30," + dn + ")";
+    nctx.fillRect(0, 0, W, H);
+    nctx.globalCompositeOperation = "destination-out";
+    const g = nctx.createRadialGradient(W / 2, hor, 20, W / 2, H, H * 0.95);
+    g.addColorStop(0, "rgba(0,0,0,0.92)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    nctx.fillStyle = g; nctx.fillRect(0, 0, W, H);
+    nctx.globalCompositeOperation = "source-over";
+    ctx.drawImage(nightCv, 0, 0);
+  }
+}
+
+function drawCockpit() {
+  ctx.fillStyle = "#1a1a1a";
+  ctx.beginPath();
+  ctx.moveTo(W * 0.12, H);
+  ctx.lineTo(W * 0.30, H * 0.85);
+  ctx.lineTo(W * 0.70, H * 0.85);
+  ctx.lineTo(W * 0.88, H);
+  ctx.closePath(); ctx.fill();
+  // Lenkergriffe
+  ctx.fillStyle = "#2a2a2a";
+  ctx.fillRect(W * 0.26, H * 0.83, W * 0.07, H * 0.05);
+  ctx.fillRect(W * 0.67, H * 0.83, W * 0.07, H * 0.05);
+  // Tacho-Andeutung
+  ctx.fillStyle = "#333";
+  ctx.beginPath(); ctx.arc(W * 0.5, H * 0.9, Math.min(W, H) * 0.045, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#5aa0e0";
+  ctx.beginPath(); ctx.arc(W * 0.5, H * 0.97, Math.min(W, H) * 0.03, 0, Math.PI * 2); ctx.fill();
 }
 
 function drawNight(camX, camY) {
@@ -802,67 +962,138 @@ function onScreen(x, y, m) {
 }
 
 /* ---------------------------------------------------------
-   Mehrspieler über WebSocket
+   Mehrspieler über PeerJS (P2P, serverlos – läuft auf Vercel)
+   Der Host ist die Drehscheibe: Gäste verbinden sich zu ihm,
+   er leitet die Zustände an alle weiter (Sterntopologie).
    --------------------------------------------------------- */
-let ws = null, myId = null, roomCode = null;
-const remotes = new Map(); // id -> { profile, x,y,angle, tx,ty,tangle, blinkL,blinkR }
+const PEER_NS = "simsontour-v1-";   // Namensraum vor dem Code
+let peer = null, myId = null, roomCode = null, isHost = false;
+let hostConn = null;                // Gast: Verbindung zum Host
+const conns = new Map();            // Host: gastId -> Verbindung
+let myProfile = {};
+const remotes = new Map();          // id -> { profile, x,y,angle, tx,ty,tangle, blinkL,blinkR }
 
-function wsUrl() {
-  if (location.host) {
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    return proto + "://" + location.host;
-  }
-  return "ws://localhost:8080"; // Fallback bei Aufruf via file://
-}
 function mpStatus(text, ok) {
   const el = document.getElementById("mpStatus");
   if (el) { el.textContent = text; el.style.color = ok ? "#9fe6c0" : "#ffb0b0"; }
 }
-
-function connect(mode, code) {
-  const name = (document.getElementById("mpName").value || "Fahrer").slice(0, 16);
-  initAudio();
-  if (audio && audio.state === "suspended") audio.resume();
-  try { ws = new WebSocket(wsUrl()); }
-  catch (e) { mpStatus("Verbindung fehlgeschlagen", false); return; }
-
-  mpStatus("Verbinde…", true);
-  ws.onopen = () => ws.send(JSON.stringify({ type: mode, code, name, outfit, model }));
-  ws.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch { return; } handleNet(m); };
-  ws.onclose = () => { if (running) toast("🔌 Verbindung getrennt"); mpStatus("Getrennt", false); };
-  ws.onerror = () => mpStatus("Server nicht erreichbar – läuft node server.js?", false);
+function makeCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let c = ""; for (let i = 0; i < 4; i++) c += chars[Math.floor(Math.random() * chars.length)];
+  return c;
+}
+function localState() {
+  return { x: Math.round(bike.x), y: Math.round(bike.y), angle: +bike.angle.toFixed(3),
+           speed: Math.round(bike.speed), outfit, model, blinkL, blinkR };
 }
 
-function handleNet(msg) {
-  if (msg.type === "joined") {
-    myId = msg.id; roomCode = msg.code;
-    for (const p of msg.peers) addRemote(p.id, p.profile, p.state);
-    startGame();
+function connect(mode, code) {
+  if (typeof Peer === "undefined") { mpStatus("PeerJS nicht geladen (online?)", false); return; }
+  myProfile = { name: (document.getElementById("mpName").value || "Fahrer").slice(0, 16), outfit, model };
+  initAudio();
+  if (audio && audio.state === "suspended") audio.resume();
+  if (mode === "host") hostRoom(0);
+  else joinRoom(code);
+}
+
+function hostRoom(attempt) {
+  const code = makeCode();
+  isHost = true;
+  mpStatus("Erstelle Raum…", true);
+  peer = new Peer(PEER_NS + code);
+  peer.on("open", () => {
+    myId = PEER_NS + code; roomCode = code;
+    startGame(); updateMpInfo();
+    mpStatus("Raum " + code + " bereit ✓", true);
+    toast("🎮 Raum " + code);
+  });
+  peer.on("connection", setupHostConn);
+  peer.on("error", (err) => {
+    if (err.type === "unavailable-id" && attempt < 5) { try { peer.destroy(); } catch (e) {} hostRoom(attempt + 1); }
+    else mpStatus("Fehler: " + err.type, false);
+  });
+}
+
+function setupHostConn(conn) {
+  conn.on("open", () => {
+    const gid = conn.peer;
+    const prof = conn.metadata || {};
+    conns.set(gid, conn);
+    addRemote(gid, prof, null);
     updateMpInfo();
-    toast("🎮 Raum " + roomCode);
-  } else if (msg.type === "error") {
-    mpStatus(msg.msg || "Fehler", false);
-  } else if (msg.type === "peerJoined") {
-    addRemote(msg.id, msg.profile, null);
-    updateMpInfo();
-    toast("➕ " + (msg.profile.name || "Fahrer") + " beigetreten");
-  } else if (msg.type === "peerLeft") {
-    const r = remotes.get(msg.id);
-    remotes.delete(msg.id);
-    updateMpInfo();
-    if (r) toast("➖ " + (r.profile.name || "Fahrer") + " verlässt");
-  } else if (msg.type === "state") {
-    const r = remotes.get(msg.id);
-    if (r && msg.state) {
-      r.tx = msg.state.x; r.ty = msg.state.y; r.tangle = msg.state.angle;
-      r.blinkL = msg.state.blinkL; r.blinkR = msg.state.blinkR;
-      r.profile.outfit = msg.state.outfit | 0;
+    toast("➕ " + (prof.name || "Fahrer") + " beigetreten");
+
+    // dem Neuen alle bisherigen Spieler schicken (Host + andere Gäste)
+    const peers = [{ id: myId, profile: myProfile, state: localState() }];
+    for (const [id, r] of remotes) {
+      if (id === gid) continue;
+      peers.push({ id, profile: r.profile, state: { x: r.tx, y: r.ty, angle: r.tangle, outfit: r.profile.outfit, blinkL: r.blinkL, blinkR: r.blinkR } });
     }
+    conn.send({ t: "init", peers });
+    // den anderen Gästen den Neuen melden
+    for (const [id, c] of conns) if (id !== gid && c.open) c.send({ t: "join", id: gid, profile: prof });
+  });
+  conn.on("data", (msg) => {
+    if (msg.t !== "state") return;
+    const gid = conn.peer;
+    applyRemoteState(gid, msg.state);
+    for (const [id, c] of conns) if (id !== gid && c.open) c.send({ t: "state", id: gid, state: msg.state });
+  });
+  conn.on("close", () => {
+    const gid = conn.peer;
+    conns.delete(gid);
+    const r = remotes.get(gid); remotes.delete(gid); updateMpInfo();
+    if (r) toast("➖ " + (r.profile.name || "Fahrer") + " verlässt");
+    for (const [id, c] of conns) if (c.open) c.send({ t: "leave", id: gid });
+  });
+}
+
+function joinRoom(code) {
+  isHost = false;
+  mpStatus("Verbinde…", true);
+  peer = new Peer();
+  peer.on("open", (id) => {
+    myId = id;
+    const conn = peer.connect(PEER_NS + code, { metadata: myProfile });
+    hostConn = conn;
+    conn.on("open", () => {
+      roomCode = code; startGame(); updateMpInfo();
+      mpStatus("Verbunden ✓", true); toast("🎮 Raum " + code);
+    });
+    conn.on("data", handleGuestMsg);
+    conn.on("close", () => { if (running) toast("🔌 Host getrennt"); mpStatus("Getrennt", false); });
+  });
+  peer.on("error", (err) => {
+    if (err.type === "peer-unavailable") mpStatus("Raum nicht gefunden", false);
+    else mpStatus("Fehler: " + err.type, false);
+  });
+}
+
+function handleGuestMsg(msg) {
+  if (msg.t === "init") {
+    for (const p of msg.peers) addRemote(p.id, p.profile, p.state);
+    updateMpInfo();
+  } else if (msg.t === "join") {
+    addRemote(msg.id, msg.profile, null); updateMpInfo();
+    toast("➕ " + (msg.profile.name || "Fahrer") + " beigetreten");
+  } else if (msg.t === "leave") {
+    const r = remotes.get(msg.id); remotes.delete(msg.id); updateMpInfo();
+    if (r) toast("➖ " + (r.profile.name || "Fahrer") + " verlässt");
+  } else if (msg.t === "state") {
+    applyRemoteState(msg.id, msg.state);
   }
 }
 
+function applyRemoteState(id, st) {
+  const r = remotes.get(id);
+  if (!r || !st) return;
+  r.tx = st.x; r.ty = st.y; r.tangle = st.angle;
+  r.blinkL = st.blinkL; r.blinkR = st.blinkR;
+  if (st.outfit != null) r.profile.outfit = st.outfit | 0;
+}
+
 function addRemote(id, profile, state) {
-  if (id === myId) return;
+  if (id === myId || remotes.has(id)) return;
   const x = state ? state.x : bike.x;
   const y = state ? state.y : bike.y;
   const a = state ? state.angle : 0;
@@ -872,18 +1103,25 @@ function addRemote(id, profile, state) {
   });
 }
 
+function leaveRoom() {
+  try { if (peer) peer.destroy(); } catch (e) {}
+  peer = null; hostConn = null; myId = null; roomCode = null; isHost = false;
+  conns.clear(); remotes.clear();
+  updateMpInfo();
+}
+
 function sendState() {
-  if (!ws || ws.readyState !== 1 || myId == null) return;
-  ws.send(JSON.stringify({ type: "state", state: {
-    x: Math.round(bike.x), y: Math.round(bike.y),
-    angle: +bike.angle.toFixed(3), speed: Math.round(bike.speed),
-    outfit, model, blinkL, blinkR,
-  } }));
+  if (!peer || myId == null) return;
+  const st = localState();
+  if (isHost) {
+    for (const c of conns.values()) if (c.open) c.send({ t: "state", id: myId, state: st });
+  } else if (hostConn && hostConn.open) {
+    hostConn.send({ t: "state", state: st });
+  }
 }
 setInterval(sendState, 60);
 
-function drawRemotePlayers() {
-  ctx.textAlign = "center";
+function interpRemotes() {
   for (const r of remotes.values()) {
     r.x += (r.tx - r.x) * 0.2;
     r.y += (r.ty - r.y) * 0.2;
@@ -891,7 +1129,12 @@ function drawRemotePlayers() {
     while (da > Math.PI) da -= Math.PI * 2;
     while (da < -Math.PI) da += Math.PI * 2;
     r.angle += da * 0.2;
+  }
+}
 
+function drawRemotePlayers() {
+  ctx.textAlign = "center";
+  for (const r of remotes.values()) {
     if (!onScreen(r.x, r.y, 80)) continue;
     drawBikeSprite(r.x, r.y, r.angle, r.profile.outfit | 0, r.blinkL, r.blinkR);
 
@@ -923,7 +1166,8 @@ function loop(ts) {
   if (!last) last = ts;
   let dt = (ts - last) / 1000; last = ts;
   dt = Math.min(dt, 0.05);
-  if (running) update(dt);
+  if (running && !paused) update(dt);
+  interpRemotes();
   draw();
   requestAnimationFrame(loop);
 }
@@ -985,9 +1229,29 @@ function startGame() {
   maxSpeed = MODELS[model].maxSpeed;
   accel = MODELS[model].accel;
   running = true;
-  newJob();
+  paused = false;
+  if (!job) newJob();
   initAudio();
   if (audio && audio.state === "suspended") audio.resume();
+}
+
+function togglePause(force) {
+  paused = force != null ? force : !paused;
+  document.getElementById("pause").classList.toggle("hidden", !paused);
+}
+function toggleView() {
+  view = view === "top" ? "fp" : "top";
+  const label = view === "top" ? "Vogelperspektive" : "Ego-Perspektive";
+  const el = document.getElementById("viewName");
+  if (el) el.textContent = label;
+  toast(view === "top" ? "📡 Vogelperspektive" : "🏍️ Ego-Perspektive");
+}
+function goToMenu() {
+  togglePause(false);
+  running = false;
+  leaveRoom();
+  job = null;
+  document.getElementById("start").classList.remove("hidden");
 }
 
 document.getElementById("startBtn").addEventListener("click", startGame);
@@ -997,5 +1261,11 @@ document.getElementById("joinBtn").addEventListener("click", () => {
   if (code.length < 3) { mpStatus("Bitte Code eingeben", false); return; }
   connect("join", code);
 });
+
+document.getElementById("pauseBtn").addEventListener("click", () => { if (running) togglePause(); });
+document.getElementById("viewBtn").addEventListener("click", toggleView);
+document.getElementById("resumeBtn").addEventListener("click", () => togglePause(false));
+document.getElementById("viewBtn2").addEventListener("click", toggleView);
+document.getElementById("menuBtn").addEventListener("click", goToMenu);
 
 requestAnimationFrame(loop);

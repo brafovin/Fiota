@@ -37,6 +37,22 @@
     <!-- Mehrspieler-Rauminfo -->
     <div id="mpInfo"></div>
 
+    <!-- Buttons oben rechts -->
+    <div id="topbtns">
+      <button id="viewBtn" title="Ansicht wechseln (V)">👁️</button>
+      <button id="pauseBtn" title="Pause (P / Esc)">⏸️</button>
+    </div>
+
+    <!-- Pause-Menü -->
+    <div id="pause" class="overlay hidden">
+      <div class="card">
+        <h1>⏸️ Pause</h1>
+        <button class="menu-btn" id="resumeBtn">Weiter spielen</button>
+        <button class="menu-btn" id="viewBtn2">Ansicht: <span id="viewName">Vogelperspektive</span></button>
+        <button class="menu-btn" id="menuBtn">Zurück zum Hauptmenü</button>
+      </div>
+    </div>
+
     <!-- Toast-Meldungen -->
     <div id="toast"></div>
 
@@ -77,7 +93,7 @@
         <p class="hint">Asphalt = schnell, Gras = zäh. Bei Regen wird's rutschig,
            nachts brauchst du Licht. Bei leerem Tank zur ⛽ Tankstelle!</p>
         <div class="mp">
-          <div class="outfit-title">Mehrspieler (optional)</div>
+          <div class="outfit-title">Mehrspieler – weltweit per Code (optional)</div>
           <input id="mpName" placeholder="Dein Name" maxlength="16" />
           <div class="mp-row">
             <button id="hostBtn" class="mp-btn">Raum erstellen</button>
@@ -95,6 +111,7 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <script src="game.js"></script>
 </body>
 </html>
