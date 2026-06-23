@@ -504,6 +504,7 @@ function draw() {
   drawCars();
   drawTrafficLights();
   drawVillageSigns();
+  drawRemotePlayers();
   drawBike();
 
   ctx.restore();
@@ -681,10 +682,13 @@ function drawVillageSigns() {
 }
 
 function drawBike() {
-  const o = OUTFITS[outfit];
+  drawBikeSprite(bike.x, bike.y, bike.angle, outfit, blinkL, blinkR);
+}
+function drawBikeSprite(x, y, angle, outfitIdx, bL, bR) {
+  const o = OUTFITS[outfitIdx] || OUTFITS[0];
   ctx.save();
-  ctx.translate(bike.x, bike.y);
-  ctx.rotate(bike.angle + Math.PI / 2);
+  ctx.translate(x, y);
+  ctx.rotate(angle + Math.PI / 2);
 
   ctx.fillStyle = "rgba(0,0,0,0.25)";
   ctx.beginPath(); ctx.ellipse(4, 6, 12, 22, 0, 0, Math.PI * 2); ctx.fill();
@@ -714,11 +718,11 @@ function drawBike() {
   const blinkOn = Math.floor(performance.now() / 250) % 2 === 0;
   if (blinkOn) {
     ctx.fillStyle = "#ffae00";
-    if (blinkL) {
+    if (bL) {
       ctx.beginPath(); ctx.arc(-9, -17, 3, 0, Math.PI * 2); ctx.fill();
       ctx.beginPath(); ctx.arc(-9, 17, 3, 0, Math.PI * 2); ctx.fill();
     }
-    if (blinkR) {
+    if (bR) {
       ctx.beginPath(); ctx.arc(9, -17, 3, 0, Math.PI * 2); ctx.fill();
       ctx.beginPath(); ctx.arc(9, 17, 3, 0, Math.PI * 2); ctx.fill();
     }
@@ -798,6 +802,121 @@ function onScreen(x, y, m) {
 }
 
 /* ---------------------------------------------------------
+   Mehrspieler über WebSocket
+   --------------------------------------------------------- */
+let ws = null, myId = null, roomCode = null;
+const remotes = new Map(); // id -> { profile, x,y,angle, tx,ty,tangle, blinkL,blinkR }
+
+function wsUrl() {
+  if (location.host) {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    return proto + "://" + location.host;
+  }
+  return "ws://localhost:8080"; // Fallback bei Aufruf via file://
+}
+function mpStatus(text, ok) {
+  const el = document.getElementById("mpStatus");
+  if (el) { el.textContent = text; el.style.color = ok ? "#9fe6c0" : "#ffb0b0"; }
+}
+
+function connect(mode, code) {
+  const name = (document.getElementById("mpName").value || "Fahrer").slice(0, 16);
+  initAudio();
+  if (audio && audio.state === "suspended") audio.resume();
+  try { ws = new WebSocket(wsUrl()); }
+  catch (e) { mpStatus("Verbindung fehlgeschlagen", false); return; }
+
+  mpStatus("Verbinde…", true);
+  ws.onopen = () => ws.send(JSON.stringify({ type: mode, code, name, outfit, model }));
+  ws.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch { return; } handleNet(m); };
+  ws.onclose = () => { if (running) toast("🔌 Verbindung getrennt"); mpStatus("Getrennt", false); };
+  ws.onerror = () => mpStatus("Server nicht erreichbar – läuft node server.js?", false);
+}
+
+function handleNet(msg) {
+  if (msg.type === "joined") {
+    myId = msg.id; roomCode = msg.code;
+    for (const p of msg.peers) addRemote(p.id, p.profile, p.state);
+    startGame();
+    updateMpInfo();
+    toast("🎮 Raum " + roomCode);
+  } else if (msg.type === "error") {
+    mpStatus(msg.msg || "Fehler", false);
+  } else if (msg.type === "peerJoined") {
+    addRemote(msg.id, msg.profile, null);
+    updateMpInfo();
+    toast("➕ " + (msg.profile.name || "Fahrer") + " beigetreten");
+  } else if (msg.type === "peerLeft") {
+    const r = remotes.get(msg.id);
+    remotes.delete(msg.id);
+    updateMpInfo();
+    if (r) toast("➖ " + (r.profile.name || "Fahrer") + " verlässt");
+  } else if (msg.type === "state") {
+    const r = remotes.get(msg.id);
+    if (r && msg.state) {
+      r.tx = msg.state.x; r.ty = msg.state.y; r.tangle = msg.state.angle;
+      r.blinkL = msg.state.blinkL; r.blinkR = msg.state.blinkR;
+      r.profile.outfit = msg.state.outfit | 0;
+    }
+  }
+}
+
+function addRemote(id, profile, state) {
+  if (id === myId) return;
+  const x = state ? state.x : bike.x;
+  const y = state ? state.y : bike.y;
+  const a = state ? state.angle : 0;
+  remotes.set(id, {
+    profile: profile || {}, x, y, angle: a, tx: x, ty: y, tangle: a,
+    blinkL: false, blinkR: false,
+  });
+}
+
+function sendState() {
+  if (!ws || ws.readyState !== 1 || myId == null) return;
+  ws.send(JSON.stringify({ type: "state", state: {
+    x: Math.round(bike.x), y: Math.round(bike.y),
+    angle: +bike.angle.toFixed(3), speed: Math.round(bike.speed),
+    outfit, model, blinkL, blinkR,
+  } }));
+}
+setInterval(sendState, 60);
+
+function drawRemotePlayers() {
+  ctx.textAlign = "center";
+  for (const r of remotes.values()) {
+    r.x += (r.tx - r.x) * 0.2;
+    r.y += (r.ty - r.y) * 0.2;
+    let da = r.tangle - r.angle;
+    while (da > Math.PI) da -= Math.PI * 2;
+    while (da < -Math.PI) da += Math.PI * 2;
+    r.angle += da * 0.2;
+
+    if (!onScreen(r.x, r.y, 80)) continue;
+    drawBikeSprite(r.x, r.y, r.angle, r.profile.outfit | 0, r.blinkL, r.blinkR);
+
+    const nm = r.profile.name || "Fahrer";
+    ctx.font = "bold 13px Trebuchet MS";
+    const w = ctx.measureText(nm).width + 14;
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    roundRect(r.x - w / 2, r.y - 46, w, 18, 5); ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.fillText(nm, r.x, r.y - 33);
+  }
+}
+
+function updateMpInfo() {
+  const el = document.getElementById("mpInfo");
+  if (!el) return;
+  if (roomCode) {
+    el.style.display = "block";
+    el.textContent = "🎮 Raum " + roomCode + " · " + (remotes.size + 1) + " Fahrer";
+  } else {
+    el.style.display = "none";
+  }
+}
+
+/* ---------------------------------------------------------
    Loop
    --------------------------------------------------------- */
 function loop(ts) {
@@ -860,7 +979,8 @@ function showHighscore() {
 }
 showHighscore();
 
-document.getElementById("startBtn").addEventListener("click", () => {
+function startGame() {
+  if (running) return;
   document.getElementById("start").classList.add("hidden");
   maxSpeed = MODELS[model].maxSpeed;
   accel = MODELS[model].accel;
@@ -868,6 +988,14 @@ document.getElementById("startBtn").addEventListener("click", () => {
   newJob();
   initAudio();
   if (audio && audio.state === "suspended") audio.resume();
+}
+
+document.getElementById("startBtn").addEventListener("click", startGame);
+document.getElementById("hostBtn").addEventListener("click", () => connect("host", null));
+document.getElementById("joinBtn").addEventListener("click", () => {
+  const code = (document.getElementById("joinCode").value || "").toUpperCase().trim();
+  if (code.length < 3) { mpStatus("Bitte Code eingeben", false); return; }
+  connect("join", code);
 });
 
 requestAnimationFrame(loop);

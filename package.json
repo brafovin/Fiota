@@ -1,0 +1,13 @@
+{
+  "name": "simson-tour",
+  "version": "1.0.0",
+  "description": "Simson Tour – Top-Down-Fahrspiel mit Mehrspielermodus",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

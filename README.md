@@ -5,16 +5,32 @@ durch eine Welt mit mehreren Dörfern. Top-Down-Ansicht, einfache Fahrphysik,
 prozedural platzierte Häuser und Bäume, Tacho, Minikarte und ein
 Zweitakt-Motorsound aus dem Browser.
 
-## Spielen
+## Spielen (Solo)
 
-Keine Installation, kein Build nötig – einfach `index.html` im Browser öffnen.
+Keine Installation, kein Build nötig – einfach `index.html` im Browser öffnen
+und auf **„Allein losfahren"** klicken.
 
-Oder lokal über einen kleinen Server (empfohlen, falls der Sound blockiert):
+## Mehrspielermodus
+
+Für gemeinsames Spielen läuft ein kleiner WebSocket-Server, der zugleich das
+Spiel ausliefert und Räume per **Zugangscode** verwaltet.
 
 ```bash
-python3 -m http.server 8000
-# dann http://localhost:8000 öffnen
+npm install      # einmalig: Abhängigkeit (ws) installieren
+npm start        # Server starten -> http://localhost:8080
 ```
+
+1. Alle öffnen `http://localhost:8080` (im selben Netzwerk:
+   `http://<IP-des-Hosts>:8080`).
+2. Ein Spieler trägt seinen Namen ein und klickt **„Raum erstellen"** –
+   er bekommt einen 4-stelligen Code (z. B. `CQGS`).
+3. Die anderen tragen Namen + Code ein und klicken **„Beitreten"**.
+4. Alle fahren in derselben Welt; Mitspieler erscheinen mit Namensschild,
+   oben links steht der Raumcode und die Anzahl der Fahrer.
+
+Der Port lässt sich über `PORT=3000 npm start` ändern. Für Spiel über das
+Internet muss der Server erreichbar sein (z. B. auf einem kleinen Hoster
+deployen oder einen Tunnel wie `ngrok` nutzen).
 
 ## Steuerung
 
@@ -58,6 +74,9 @@ Auf Smartphone/Tablet erscheinen Touch-Buttons.
 
 - `index.html` – Grundgerüst, HUD, Startbildschirm
 - `style.css`  – Layout & HUD-Design
-- `game.js`    – Welt, Fahrphysik, Rendering, Sound (Vanilla JS, Canvas 2D)
+- `game.js`    – Welt, Fahrphysik, Rendering, Sound, Mehrspieler-Client (Vanilla JS, Canvas 2D)
+- `server.js`  – WebSocket-Server: liefert die Dateien aus und verwaltet Räume
+- `package.json` – Start-Skript und die einzige Abhängigkeit (`ws`)
 
-Alles in reinem HTML/CSS/JavaScript ohne externe Abhängigkeiten.
+Der Client (HTML/CSS/JS) hat keine externen Abhängigkeiten; nur der optionale
+Mehrspieler-Server nutzt das `ws`-Paket.

@@ -230,6 +230,51 @@ canvas#game {
   min-height: 18px;
 }
 
+/* ---------- Mehrspieler ---------- */
+.mp {
+  margin: 14px 0 6px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255,255,255,.12);
+}
+.mp input {
+  background: rgba(255,255,255,.1);
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 8px;
+  color: #fff;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: inherit;
+}
+#mpName { width: 100%; margin-bottom: 8px; }
+#joinCode { width: 90px; text-transform: uppercase; letter-spacing: 2px; text-align: center; font-weight: 700; }
+.mp-row { display: flex; gap: 8px; justify-content: center; margin-bottom: 8px; }
+.mp-btn {
+  padding: 9px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #16221a;
+  background: #8ed0ff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.mp-btn:active { transform: translateY(1px); }
+#mpStatus { font-size: 12px; min-height: 16px; margin-top: 2px; }
+
+#mpInfo {
+  position: absolute;
+  bottom: 14px; left: 14px;
+  display: none;
+  background: rgba(40,90,160,.6);
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 10px;
+  padding: 7px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  text-shadow: 0 2px 4px rgba(0,0,0,.6);
+  pointer-events: none;
+}
+
 #startBtn {
   margin-top: 6px;
   padding: 14px 40px;

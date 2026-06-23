@@ -34,6 +34,9 @@
     <!-- Uhr & Wetter -->
     <div id="env">08:00 ☀️</div>
 
+    <!-- Mehrspieler-Rauminfo -->
+    <div id="mpInfo"></div>
+
     <!-- Toast-Meldungen -->
     <div id="toast"></div>
 
@@ -73,8 +76,21 @@
         </ul>
         <p class="hint">Asphalt = schnell, Gras = zäh. Bei Regen wird's rutschig,
            nachts brauchst du Licht. Bei leerem Tank zur ⛽ Tankstelle!</p>
+        <div class="mp">
+          <div class="outfit-title">Mehrspieler (optional)</div>
+          <input id="mpName" placeholder="Dein Name" maxlength="16" />
+          <div class="mp-row">
+            <button id="hostBtn" class="mp-btn">Raum erstellen</button>
+          </div>
+          <div class="mp-row">
+            <input id="joinCode" placeholder="CODE" maxlength="4" />
+            <button id="joinBtn" class="mp-btn">Beitreten</button>
+          </div>
+          <div id="mpStatus"></div>
+        </div>
+
         <div id="highscore"></div>
-        <button id="startBtn">Losfahren</button>
+        <button id="startBtn">Allein losfahren</button>
       </div>
     </div>
   </div>
